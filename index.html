@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Game of Life Simulation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background-color: #f0f0f0;
+        }
+        #grid {
+            display: grid;
+            gap: 1px;
+            background-color: #ccc;
+            border: 1px solid #999;
+            margin: 20px 0;
+        }
+        .cell {
+            width: 10px;
+            height: 10px;
+            background-color: white;
+            transition: background-color 0.3s;
+        }
+        .cell.alive {
+            background-color: black;
+        }
+        button, input, select {
+            margin: 5px;
+            padding: 5px 10px;
+            font-size: 14px;
+        }
+        #controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 600px;
+        }
+        #colorPicker {
+            width: 50px;
+            height: 30px;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Advanced Game of Life Simulation</h1>
+    <div id="grid"></div>
+    <div id="controls">
+        <button id="start">Start</button>
+        <button id="stop">Stop</button>
+        <button id="clear">Clear</button>
+        <button id="random">Random</button>
+        <input type="number" id="gridSize" min="10" max="100" value="50" style="width: 50px;">
+        <button id="updateSize">Update Size</button>
+        <input type="color" id="colorPicker" value="#000000">
+        <select id="patternSelect">
+            <option value="custom">Custom</option>
+            <option value="glider">Glider</option>
+            <option value="blinker">Blinker</option>
+            <option value="toad">Toad</option>
+        </select>
+    </div>
+    <script>
+        let gridSize = 50;
+        const grid = document.getElementById('grid');
+        let cells = [];
+        let cellColors = [];
+        let cellStability = [];
+        let isRunning = false;
+        let intervalId;
+        let generationCount = 0;
+
+        function createGrid() {
+            grid.innerHTML = '';
+            grid.style.gridTemplateColumns = `repeat(${gridSize}, 10px)`;
+            cells = [];
+            cellColors = [];
+            cellStability = [];
+            for (let i = 0; i < gridSize * gridSize; i++) {
+                const cell = document.createElement('div');
+                cell.classList.add('cell');
+                cell.addEventListener('click', () => toggleCell(i));
+                grid.appendChild(cell);
+                cells.push(false);
+                cellColors.push('#000000');
+                cellStability.push(0);
+            }
+        }
+
+        function toggleCell(index) {
+            cells[index] = !cells[index];
+            cellColors[index] = document.getElementById('colorPicker').value;
+            cellStability[index] = 0;
+            updateGrid();
+        }
+
+        function updateGrid() {
+            const cellElements = document.getElementsByClassName('cell');
+            for (let i = 0; i < cells.length; i++) {
+                cellElements[i].classList.toggle('alive', cells[i]);
+                if (cells[i]) {
+                    cellElements[i].style.backgroundColor = cellColors[i];
+                } else {
+                    cellElements[i].style.backgroundColor = 'white';
+                }
+            }
+        }
+
+        function countNeighbors(index) {
+            const row = Math.floor(index / gridSize);
+            const col = index % gridSize;
+            let count = 0;
+
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    if (i === 0 && j === 0) continue;
+                    const newRow = (row + i + gridSize) % gridSize;
+                    const newCol = (col + j + gridSize) % gridSize;
+                    count += cells[newRow * gridSize + newCol] ? 1 : 0;
+                }
+            }
+
+            return count;
+        }
+
+        function getNeighborColors(index) {
+            const row = Math.floor(index / gridSize);
+            const col = index % gridSize;
+            let colors = [];
+
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    if (i === 0 && j === 0) continue;
+                    const newRow = (row + i + gridSize) % gridSize;
+                    const newCol = (col + j + gridSize) % gridSize;
+                    const newIndex = newRow * gridSize + newCol;
+                    if (cells[newIndex]) {
+                        colors.push(cellColors[newIndex]);
+                    }
+                }
+            }
+
+            return colors;
+        }
+
+        function blendColors(color1, color2, ratio) {
+            const r1 = parseInt(color1.slice(1, 3), 16);
+            const g1 = parseInt(color1.slice(3, 5), 16);
+            const b1 = parseInt(color1.slice(5, 7), 16);
+            const r2 = parseInt(color2.slice(1, 3), 16);
+            const g2 = parseInt(color2.slice(3, 5), 16);
+            const b2 = parseInt(color2.slice(5, 7), 16);
+
+            const r = Math.round(r1 * (1 - ratio) + r2 * ratio);
+            const g = Math.round(g1 * (1 - ratio) + g2 * ratio);
+            const b = Math.round(b1 * (1 - ratio) + b2 * ratio);
+
+            return `#${(1 << 24 | r << 16 | g << 8 | b).toString(16).slice(1)}`;
+        }
+
+        function nextGeneration() {
+            const newCells = [...cells];
+            const newColors = [...cellColors];
+            const newStability = cellStability.map(s => s + 1);
+
+            for (let i = 0; i < cells.length; i++) {
+                const neighbors = countNeighbors(i);
+                const wasAlive = cells[i];
+
+                if (cells[i]) {
+                    newCells[i] = neighbors === 2 || neighbors === 3;
+                } else {
+                    newCells[i] = neighbors === 3;
+                }
+
+                if (newCells[i] !== wasAlive) {
+                    newStability[i] = 0;
+                }
+
+                if (newCells[i] && !wasAlive) {
+                    // New cell born
+                    const neighborColors = getNeighborColors(i);
+                    newColors[i] = averageColors(neighborColors);
+                } else if (newCells[i] && wasAlive && neighbors < 2) {
+                    // Cell consumed
+                    const neighborColors = getNeighborColors(i);
+                    newColors[i] = blendColors(newColors[i], averageColors(neighborColors), 1/3);
+                }
+            }
+
+            // Check for stable pairs and create new cells
+            for (let i = 0; i < cells.length; i++) {
+                if (newCells[i] && newStability[i] >= 10) {
+                    const neighbors = getNeighborIndices(i);
+                    for (let j of neighbors) {
+                        if (newCells[j] && newStability[j] >= 10) {
+                            const newCellIndex = findEmptyNeighbor(i, j);
+                            if (newCellIndex !== -1) {
+                                newCells[newCellIndex] = true;
+                                // New: Blend parents' colors with a random color
+                                const randomColor = getRandomColor();
+                                const parentAverage = averageColors([newColors[i], newColors[j]]);
+                                newColors[newCellIndex] = blendColors(parentAverage, randomColor, 0.5);
+                                newStability[newCellIndex] = 0;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            cells = newCells;
+            cellColors = newColors;
+            cellStability = newStability;
+            updateGrid();
+            generationCount++;
+        }
+
+        function getNeighborIndices(index) {
+            const row = Math.floor(index / gridSize);
+            const col = index % gridSize;
+            let indices = [];
+
+            for (let i = -1; i <= 1; i++) {
+                for (let j = -1; j <= 1; j++) {
+                    if (i === 0 && j === 0) continue;
+                    const newRow = (row + i + gridSize) % gridSize;
+                    const newCol = (col + j + gridSize) % gridSize;
+                    indices.push(newRow * gridSize + newCol);
+                }
+            }
+
+            return indices;
+        }
+
+        function findEmptyNeighbor(index1, index2) {
+            const neighbors1 = getNeighborIndices(index1);
+            const neighbors2 = getNeighborIndices(index2);
+            const commonNeighbors = neighbors1.filter(n => neighbors2.includes(n));
+
+            for (let i of commonNeighbors) {
+                if (!cells[i]) {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        function averageColors(colors) {
+            if (colors.length === 0) return document.getElementById('colorPicker').value;
+
+            let r = 0, g = 0, b = 0;
+            colors.forEach(color => {
+                const rgb = parseInt(color.slice(1), 16);
+                r += (rgb >> 16) & 255;
+                g += (rgb >> 8) & 255;
+                b += rgb & 255;
+            });
+
+            r = Math.round(r / colors.length);
+            g = Math.round(g / colors.length);
+            b = Math.round(b / colors.length);
+
+            return `#${(1 << 24 | r << 16 | g << 8 | b).toString(16).slice(1)}`;
+        }
+
+        function getRandomColor() {
+            return `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
+        }
+
+        function startSimulation() {
+            if (!isRunning) {
+                isRunning = true;
+                intervalId = setInterval(nextGeneration, 100);
+            }
+        }
+
+        function stopSimulation() {
+            if (isRunning) {
+                isRunning = false;
+                clearInterval(intervalId);
+            }
+        }
+
+        function clearGrid() {
+            stopSimulation();
+            cells = cells.map(() => false);
+            cellColors = cellColors.map(() => '#000000');
+            cellStability = cellStability.map(() => 0);
+            generationCount = 0;
+            updateGrid();
+        }
+
+        function randomizeGrid() {
+            stopSimulation();
+            cells = cells.map(() => Math.random() < 0.3);
+            cellColors = cellColors.map(() => getRandomColor());
+            cellStability = cellStability.map(() => 0);
+            generationCount = 0;
+            updateGrid();
+        }
+
+        function updateGridSize() {
+            const newSize = parseInt(document.getElementById('gridSize').value);
+            if (newSize >= 10 && newSize <= 100) {
+                gridSize = newSize;
+                createGrid();
+            }
+        }
+
+        function createPattern(pattern) {
+            clearGrid();
+            const center = Math.floor(gridSize / 2);
+            switch (pattern) {
+                case 'glider':
+                    setCell(center - 1, center, '#FF0000');
+                    setCell(center, center + 1, '#00FF00');
+                    setCell(center + 1, center - 1, '#0000FF');
+                    setCell(center + 1, center, '#FFFF00');
+                    setCell(center + 1, center + 1, '#00FFFF');
+                    break;
+                case 'blinker':
+                    setCell(center, center - 1, '#FF00FF');
+                    setCell(center, center, '#FF8000');
+                    setCell(center, center + 1, '#8000FF');
+                    break;
+                case 'toad':
+                    setCell(center, center - 1, '#FF0080');
+                    setCell(center, center, '#80FF00');
+                    setCell(center, center + 1, '#0080FF');
+                    setCell(center + 1, center - 2, '#FF8000');
+                    setCell(center + 1, center - 1, '#00FF80');
+                    setCell(center + 1, center, '#8000FF');
+                    break;
+            }
+            updateGrid();
+        }
+
+        function setCell(row, col, color) {
+            const index = row * gridSize + col;
+            cells[index] = true;
+            cellColors[index] = color;
+            cellStability[index] = 0;
+        }
+
+        createGrid();
+
+        document.getElementById('start').addEventListener('click', startSimulation);
+        document.getElementById('stop').addEventListener('click', stopSimulation);
+        document.getElementById('clear').addEventListener('click', clearGrid);
+        document.getElementById('random').addEventListener('click', randomizeGrid);
+        document.getElementById('updateSize').addEventListener('click', updateGridSize);
+        document.getElementById('patternSelect').addEventListener('change', (e) => {
+            if (e.target.value !== 'custom') {
+                createPattern(e.target.value);
+            }
+        });
+    </script>
+</body>
+</html>
